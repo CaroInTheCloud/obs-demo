@@ -41,6 +41,45 @@ ID automatically via `aws sts get-caller-identity`.
 
 ---
 
+## Local testing (optional, recommended first)
+
+Before touching AWS, sanity-check the app itself with Docker Compose:
+
+```bash
+docker compose up -d --build
+```
+
+This builds and starts `postgres`, `backend`, `frontend`, and `loadgen`, wired together
+by service name (no Kubernetes needed). Once it's up:
+
+```bash
+open http://localhost:8080          # frontend page, refreshes on each load
+curl http://localhost:8080/metrics  # frontend Prometheus metrics
+curl http://localhost:8000/metrics  # backend Prometheus metrics
+docker compose logs -f              # tail plain-text logs from all services
+docker compose ps                   # check container status
+```
+
+Chaos endpoints work locally too, e.g.:
+
+```bash
+curl -X POST http://localhost:8000/chaos/unhealthy
+curl http://localhost:8000/healthz   # 503
+curl -X POST http://localhost:8000/chaos/healthy
+```
+
+Tear down when done:
+
+```bash
+docker compose down
+```
+
+This only validates the app itself — it doesn't cover EKS-specific things like ECR
+pushes, IAM, or agent autodiscovery via pod annotations. Follow the run order below for
+the full picture.
+
+---
+
 ## Run order
 
 ### Step 0 — Clone and review
