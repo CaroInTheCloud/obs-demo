@@ -1,0 +1,97 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: demo
+  labels:
+    app: postgres
+    service: postgres
+    env: demo
+data:
+  01-schema.sql: |
+    CREATE TABLE IF NOT EXISTS events (
+        id         SERIAL PRIMARY KEY,
+        event_type VARCHAR(100) NOT NULL,
+        value      INTEGER      NOT NULL,
+        created_at TIMESTAMP    DEFAULT NOW()
+    );
+    INSERT INTO events (event_type, value) VALUES
+        ('startup',    1),
+        ('seed_alpha', 42),
+        ('seed_beta',  17),
+        ('seed_gamma', 99),
+        ('seed_delta', 8);
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: demo
+  labels:
+    app: postgres
+    service: postgres
+    env: demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+        service: postgres
+        env: demo
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          env:
+            - name: POSTGRES_DB
+              value: demo
+            - name: POSTGRES_USER
+              value: demo
+            - name: POSTGRES_PASSWORD
+              value: demo
+          ports:
+            - containerPort: 5432
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: init-scripts
+              mountPath: /docker-entrypoint-initdb.d
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "demo", "-d", "demo"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 6
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: init-scripts
+          configMap:
+            name: postgres-init
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: demo
+  labels:
+    app: postgres
+    service: postgres
+    env: demo
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432

@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loadgen
+  namespace: demo
+  labels:
+    app: loadgen
+    service: loadgen
+    env: demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loadgen
+  template:
+    metadata:
+      labels:
+        app: loadgen
+        service: loadgen
+        env: demo
+    spec:
+      containers:
+        - name: loadgen
+          image: ${ECR_REGISTRY}/obs-demo/loadgen:latest
+          env:
+            - name: FRONTEND_URL
+              value: http://frontend.demo.svc.cluster.local:8080
+            - name: RPS
+              value: "5"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi

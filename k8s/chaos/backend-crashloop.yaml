@@ -1,0 +1,75 @@
+# CHAOS: CrashLoopBackOff
+#
+# Sets CRASH_ON_BOOT=true so the backend process exits immediately on startup.
+# Kubernetes will restart it repeatedly with exponential backoff.
+#
+# Apply:
+#   sed "s|\${ECR_REGISTRY}|${ECR_REGISTRY}|g" k8s/chaos/backend-crashloop.yaml | kubectl apply -f -
+#
+# Revert (restore baseline):
+#   sed "s|\${ECR_REGISTRY}|${ECR_REGISTRY}|g" k8s/backend.yaml | kubectl apply -f -
+#
+# Watch:
+#   kubectl get pods -n demo -w
+#
+# Look for: STATUS=CrashLoopBackOff, RESTARTS climbing
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: demo
+  labels:
+    app: backend
+    service: backend
+    env: demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+        service: backend
+        env: demo
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port:   "8000"
+        prometheus.io/path:   "/metrics"
+    spec:
+      containers:
+        - name: backend
+          image: ${ECR_REGISTRY}/obs-demo/backend:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DATABASE_URL
+              value: postgresql://demo:demo@postgres.demo.svc.cluster.local:5432/demo
+            - name: ERROR_RATE
+              value: "0.05"
+            - name: CPU_INTENSITY
+              value: "0"
+            - name: CRASH_ON_BOOT
+              value: "true"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 3

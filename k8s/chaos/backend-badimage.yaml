@@ -1,0 +1,52 @@
+# CHAOS: ImagePullBackOff
+#
+# References a nonexistent image tag. Kubernetes cannot pull it and the pod
+# stays stuck in ImagePullBackOff indefinitely.
+#
+# Apply:
+#   sed "s|\${ECR_REGISTRY}|${ECR_REGISTRY}|g" k8s/chaos/backend-badimage.yaml | kubectl apply -f -
+#
+# Revert:
+#   sed "s|\${ECR_REGISTRY}|${ECR_REGISTRY}|g" k8s/backend.yaml | kubectl apply -f -
+#
+# Watch:
+#   kubectl get pods -n demo -w
+#   kubectl describe pod -n demo -l app=backend   # shows "Back-off pulling image" event
+#
+# Look for: STATUS=ImagePullBackOff or ErrImagePull
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: demo
+  labels:
+    app: backend
+    service: backend
+    env: demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+        service: backend
+        env: demo
+    spec:
+      containers:
+        - name: backend
+          image: ${ECR_REGISTRY}/obs-demo/backend:doesnotexist
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DATABASE_URL
+              value: postgresql://demo:demo@postgres.demo.svc.cluster.local:5432/demo
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 128Mi

@@ -1,0 +1,52 @@
+# CHAOS: Pending / Unschedulable
+#
+# Requests 1000Gi of memory — more than any real node can satisfy.
+# The pod stays in Pending with a FailedScheduling event forever.
+#
+# Apply:
+#   sed "s|\${ECR_REGISTRY}|${ECR_REGISTRY}|g" k8s/chaos/backend-unschedulable.yaml | kubectl apply -f -
+#
+# Revert:
+#   sed "s|\${ECR_REGISTRY}|${ECR_REGISTRY}|g" k8s/backend.yaml | kubectl apply -f -
+#
+# Watch:
+#   kubectl get pods -n demo -w
+#   kubectl describe pod -n demo -l app=backend   # shows "FailedScheduling: insufficient memory" event
+#
+# Look for: STATUS=Pending (never moves to Running)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: demo
+  labels:
+    app: backend
+    service: backend
+    env: demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+        service: backend
+        env: demo
+    spec:
+      containers:
+        - name: backend
+          image: ${ECR_REGISTRY}/obs-demo/backend:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: DATABASE_URL
+              value: postgresql://demo:demo@postgres.demo.svc.cluster.local:5432/demo
+          resources:
+            requests:
+              cpu: 100m
+              memory: 1000Gi   # impossible — no node can satisfy this
+            limits:
+              cpu: 500m
+              memory: 1000Gi
