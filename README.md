@@ -30,6 +30,20 @@ platform's ingestion, parsing, dashboarding, and alerting side-by-side.
 Your IAM user/role needs permissions for: EKS, EC2 (VPC, nodegroups), ECR, IAM
 (eksctl creates roles), CloudFormation.
 
+> **Datadog employees using a sandbox account:** two org-level constraints will bite you
+> here, both already handled by `scripts/00-create-cluster.sh`:
+> 1. A Service Control Policy denies `eks:CreateCluster` unless the cluster explicitly
+>    requests `upgradePolicy.supportType: STANDARD` (bare `eksctl create cluster` defaults
+>    to the pricier `EXTENDED` support and gets an explicit deny). See the
+>    [Creating EKS Cluster Sandboxes](https://datadoghq.atlassian.net/wiki/spaces/TS/pages/2295038121/Creating+EKS+Cluster+Sandboxes)
+>    runbook.
+> 2. Shared sandbox accounts often sit at the default AWS quota of 5 VPCs per region.
+>    If cluster creation fails with `CREATE_FAILED` on `VPC`/`InternetGateway`/`EIP`
+>    citing a "maximum ... has been reached" error, switch to a region with headroom
+>    via `REGION=us-west-1 bash scripts/00-create-cluster.sh` (check
+>    `aws ec2 describe-vpcs --region <region> --query 'length(Vpcs)'` first). Don't
+>    delete other people's VPCs in a shared account to make room.
+
 > **Datadog employees:** Docker Desktop is deprecated and its installer requires admin
 > rights most corporate Macs don't have. Use [Colima](https://datadoghq.atlassian.net/wiki/spaces/TS/pages/6635717420/Setting+Up+Colima+A+Lightweight+Docker+Alternative+for+macOS)
 > instead — it installs via Homebrew with no sudo required and provides a drop-in
@@ -154,6 +168,52 @@ You should see a stream of plain-text lines like:
 2026-07-09 14:32:07,501 INFO  [frontend] request_id=a1b2c3 method=GET path=/ status=200 latency_ms=74 client=10.0.1.7
 2026-07-09 14:32:07,540 ERROR [backend]  request_id=d4e5f6 method=GET path=/work status=500 latency_ms=118 client=10.0.1.4 error="db timeout"
 ```
+
+---
+
+## Connect Datadog
+
+Install the Agent via Helm. Avoid pasting your API key directly into shell history or
+chat — write it to a local file first:
+
+```bash
+echo -n '<your-api-key>' > ~/.dd-api-key-obs-demo && chmod 600 ~/.dd-api-key-obs-demo
+```
+
+Then install:
+
+```bash
+helm repo add datadog https://helm.datadoghq.com
+helm repo update datadog
+
+helm install datadog-agent datadog/datadog \
+  --namespace datadog --create-namespace \
+  --set datadog.apiKey="$(cat ~/.dd-api-key-obs-demo)" \
+  --set datadog.site=datadoghq.com \
+  --set datadog.logs.enabled=true \
+  --set datadog.logs.containerCollectAll=true \
+  --set datadog.prometheusScrape.enabled=true
+```
+
+`datadog.prometheusScrape.enabled=true` is what makes the Cluster Agent autodiscover
+the `prometheus.io/scrape` annotations already on `frontend`/`backend` — without it,
+Datadog won't pick up the `/metrics` endpoints. `datadog.logs.containerCollectAll=true`
+collects stdout from every pod in the cluster, unstructured as-is.
+
+Verify it's working:
+
+```bash
+kubectl get pods -n datadog
+# All pods should reach Running with all containers ready.
+
+# Pick a node agent pod and confirm openmetrics checks + log shipping:
+kubectl exec -n datadog <datadog-agent-pod> -c agent -- agent status
+# Look for "openmetrics" instances with "config.source: prometheus_pods:..." and [OK],
+# and a "Logs Agent" section with LogsSent > 0.
+```
+
+For a different site (EU, US3/US5, etc.), swap `datadog.site` — see
+[Datadog site parameters](https://docs.datadoghq.com/getting_started/site/).
 
 ---
 
