@@ -238,6 +238,71 @@ For a different site (EU, US3/US5, etc.), swap `datadog.site` — see
 
 ---
 
+## Connect Grafana Cloud
+
+Go to your Grafana Cloud stack > **Connections > Add new connection > Kubernetes** — it
+generates a ready-to-run `helm upgrade --install` command for the `grafana/k8s-monitoring`
+chart, pre-filled with your stack's exact Prometheus/Loki/Tempo endpoints, instance IDs, and
+an access policy token. **Never paste that generated command (with the real token) into a
+chat tool or commit it to git** — the token grants write access to your stack. Save the token
+to a local file first:
+
+```bash
+echo -n '<your-access-policy-token>' > ~/.grafana-token-obs-demo && chmod 600 ~/.grafana-token-obs-demo
+```
+
+Take the generated values (everything under `--values -` in the heredoc) and save it as a
+local `grafana-values.yaml`, but replace every literal token value with a shell substitution
+so the file never has the secret baked in when regenerated:
+
+```bash
+# Inside grafana-values.yaml, wherever the generated command has a literal `password: glc_...`,
+# use this instead so it's filled in at file-generation time, not committed to disk in the clear:
+password: $(cat ~/.grafana-token-obs-demo)
+```
+
+Also set `cluster.name` (and `opencost.opencost.exporter.defaultClusterId`, if `opencost` is
+enabled) to your actual `CLUSTER_NAME` — the generated command defaults this to a placeholder
+like `my-cluster`.
+
+Then render and install:
+
+```bash
+helm repo add grafana https://grafana.github.io/helm-charts
+helm repo update
+
+helm upgrade --install --rollback-on-failure --timeout 300s grafana-k8s-monitoring \
+  grafana/k8s-monitoring --version "^4" --namespace monitoring --create-namespace \
+  --values grafana-values.yaml
+```
+
+(`--rollback-on-failure` replaces the deprecated `--atomic` flag in recent Helm versions.)
+
+This installs Grafana Alloy as several components — `alloy-metrics` (StatefulSet),
+`alloy-logs` (DaemonSet), `alloy-singleton` (Deployment, cluster events + manifests),
+plus `kube-state-metrics`, `node-exporter`, and `opencost` — collecting metrics, logs,
+Kubernetes events, and cost data in parallel with the Datadog Agent already running.
+
+Verify it's working:
+
+```bash
+kubectl get pods -n monitoring
+# All pods should reach Running.
+
+# Check for auth failures (401/403) across every monitoring pod — a bad token shows up
+# here immediately, `agent`/`alloy` logs don't hide it the way Datadog's checks can:
+for pod in $(kubectl get pods -n monitoring -o jsonpath='{.items[*].metadata.name}'); do
+  kubectl logs -n monitoring "$pod" --all-containers --tail=100 | grep -i "401\|403\|unauthorized\|forbidden"
+done
+```
+
+Then confirm data in Grafana Cloud's **Kubernetes Monitoring** app (Infrastructure >
+Kubernetes) — cluster, nodes, and pods should all populate within a few minutes, since
+(unlike Datadog) this chart's default values collect pod-level data from day one without
+an extra cluster-name flag.
+
+---
+
 ## Reach the frontend
 
 ```bash
