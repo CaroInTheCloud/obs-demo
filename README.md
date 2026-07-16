@@ -190,15 +190,21 @@ helm install datadog-agent datadog/datadog \
   --namespace datadog --create-namespace \
   --set datadog.apiKey="$(cat ~/.dd-api-key-obs-demo)" \
   --set datadog.site=datadoghq.com \
+  --set datadog.clusterName=obs-demo \
   --set datadog.logs.enabled=true \
   --set datadog.logs.containerCollectAll=true \
-  --set datadog.prometheusScrape.enabled=true
+  --set datadog.prometheusScrape.enabled=true \
+  --set datadog.processAgent.enabled=true \
+  --set datadog.processAgent.processCollection=true \
+  --set datadog.orchestratorExplorer.enabled=true
 ```
 
 `datadog.prometheusScrape.enabled=true` is what makes the Cluster Agent autodiscover
 the `prometheus.io/scrape` annotations already on `frontend`/`backend` — without it,
 Datadog won't pick up the `/metrics` endpoints. `datadog.logs.containerCollectAll=true`
-collects stdout from every pod in the cluster, unstructured as-is.
+collects stdout from every pod in the cluster, unstructured as-is. `datadog.clusterName`
+is **required** for per-pod Orchestrator Explorer data (see troubleshooting note below) —
+set it to match your `CLUSTER_NAME`.
 
 Verify it's working:
 
@@ -214,6 +220,21 @@ kubectl exec -n datadog <datadog-agent-pod> -c agent -- agent status
 
 For a different site (EU, US3/US5, etc.), swap `datadog.site` — see
 [Datadog site parameters](https://docs.datadoghq.com/getting_started/site/).
+
+> **Troubleshooting: cluster/nodes show up in Datadog but no pods.** The cluster and
+> nodes come from the Cluster Agent (cluster-scoped resources: Nodes, Deployments,
+> ReplicaSets). Individual **pods** in
+> [Orchestrator Explorer](https://app.datadoghq.com/orchestrator/pod) come from a
+> separate node-level `orchestrator_pod` check, which silently no-ops if
+> `datadog.clusterName` isn't set — it errors internally with "orchestrator check is
+> configured but the cluster name is empty" (visible via
+> `kubectl logs -n datadog <pod> -c agent | grep orchestrator`), but nothing about that
+> failure is visible in `agent status` at a glance. If you installed without
+> `clusterName` set, fix it with:
+> ```bash
+> helm upgrade datadog-agent datadog/datadog -n datadog --reuse-values \
+>   --set datadog.clusterName=obs-demo
+> ```
 
 ---
 
